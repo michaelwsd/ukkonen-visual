@@ -15,7 +15,9 @@ export type RuleApplied =
   | 'rule2case1'
   | 'rule2case2'
   | 'rule3'
-  | 'skipcount';
+  | 'skipcount'
+  | 'suffixlink'
+  | 'rootadjust';
 
 export interface StepSnapshot {
   phase: number;          // i (0-based)
@@ -100,94 +102,121 @@ export function buildSteps(txt: string): StepSnapshot[] {
   let activeLength = 0;
   let lastj = 0;
 
-  for (let i = 0; i < txt.length; i++) {
-    // Rule 1: extend all leaves
-    leafEnd++;
+  // Helper: describe remainder as a string range
+  function remStr(edge: number, len: number): string {
+    if (len <= 0 || edge < 0 || edge >= txt.length) return 'none';
+    const end = Math.min(edge + len - 1, txt.length - 1);
+    return `"${txt.slice(edge, end + 1)}" [${edge}, ${end}]`;
+  }
 
-    let lastNewNode: number | null = null;
+  function nodeLabel(id: number): string {
+    return id === root.id ? 'root' : `Node ${id}`;
+  }
 
-    // Record rule 1 step at start of phase
+  function snap(
+    phase: number,
+    extension: number,
+    rule: RuleApplied,
+    explanation: string,
+    newNodeIds: number[] = [],
+    highlightEdge: [number, number] | null = null,
+    slFrom: number | null = null,
+    slTo: number | null = null,
+  ) {
     steps.push({
-      phase: i,
-      extension: -1,
+      phase,
+      extension,
       txt,
       leafEnd,
       activeNodeId: activeNode,
       activeEdge,
       activeLength,
       lastj,
-      lastNewNodeId: null,
-      rule: 'rule1',
-      explanation: `Phase ${i + 1}: Processing character '${txt[i]}' (index ${i}). Global leaf end incremented to ${leafEnd} — all existing leaves are extended by one character (Rule 1).`,
+      lastNewNodeId: lastNewNode,
+      rule,
+      explanation,
       nodes: cloneNodes(nodes),
-      newNodeIds: [],
-      highlightEdge: null,
-      suffixLinkFrom: null,
-      suffixLinkTo: null,
+      newNodeIds,
+      highlightEdge,
+      suffixLinkFrom: slFrom,
+      suffixLinkTo: slTo,
     });
+  }
+
+  let lastNewNode: number | null = null;
+
+  for (let i = 0; i < txt.length; i++) {
+    // Rule 1: extend all leaves
+    const prevLeafEnd = leafEnd;
+    leafEnd++;
+
+    lastNewNode = null;
+
+    snap(i, -1, 'rule1',
+      `Phase ${i + 1}: Processing character '${txt[i]}' (index ${i}). ` +
+      `Leaf end incremented from ${prevLeafEnd} to ${leafEnd} — all existing leaf edges now include '${txt[i]}'. ` +
+      `Remainder is ${remStr(activeEdge, activeLength)}. ` +
+      `Extensions ${0}..${lastj - 1} are handled by Rule 1 (leaf extension). ` +
+      `We need to explicitly process extensions ${lastj}..${i}.`
+    );
 
     while (lastj <= i) {
       const edgeChar =
         activeLength === 0 ? txt.charCodeAt(i) : txt.charCodeAt(activeEdge);
       const edgeNodeId = nodes[activeNode].children[edgeChar];
 
+      // Save pre-step state for change descriptions
+      const prevActiveNode = activeNode;
+      const prevActiveEdge = activeEdge;
+      const prevActiveLength = activeLength;
+      const prevLastj = lastj;
+
       if (edgeNodeId === null) {
         // Rule 2 Case 1: no outgoing edge — create new leaf
         const newLeaf = makeNode(i, null, lastj, true);
         nodes[activeNode].children[edgeChar] = newLeaf.id;
 
+        const slFrom = lastNewNode;
         if (lastNewNode !== null) {
           nodes[lastNewNode].suffixLink = activeNode;
-          lastNewNode = null;
         }
+        const prevLastNewNode = lastNewNode;
+        lastNewNode = null;
 
-        steps.push({
-          phase: i,
-          extension: lastj,
-          txt,
-          leafEnd,
-          activeNodeId: activeNode,
-          activeEdge,
-          activeLength,
-          lastj,
-          lastNewNodeId: lastNewNode,
-          rule: 'rule2case1',
-          explanation: `Extension ${lastj}: No edge starting with '${txt[edgeChar === txt.charCodeAt(i) ? i : activeEdge]}' from active node. Created new leaf node (suffix ${lastj}). This is Rule 2, Case 1 (Alternate).`,
-          nodes: cloneNodes(nodes),
-          newNodeIds: [newLeaf.id],
-          highlightEdge: [activeNode, newLeaf.id],
-          suffixLinkFrom: null,
-          suffixLinkTo: null,
-        });
+        const lookupChar = String.fromCharCode(edgeChar);
+        snap(i, lastj, 'rule2case1',
+          `Extension ${lastj}: Trying to insert suffix "${txt.slice(lastj, i + 1)}" (indices [${lastj}, ${i}]). ` +
+          `Active node is ${nodeLabel(activeNode)}, remainder is ${remStr(activeEdge, activeLength)}. ` +
+          `No outgoing edge starting with '${lookupChar}' from ${nodeLabel(activeNode)}. ` +
+          `Created new leaf L${lastj} with edge label starting at index ${i}. ` +
+          `Rule 2, Case 1 (Alternate) applied.` +
+          (prevLastNewNode !== null ? ` Suffix link set: ${nodeLabel(prevLastNewNode)} → ${nodeLabel(activeNode)}.` : ''),
+          [newLeaf.id],
+          [activeNode, newLeaf.id],
+          slFrom,
+          slFrom !== null ? activeNode : null,
+        );
       } else {
         const edgeNode = nodes[edgeNodeId];
         const edgeLength = getLength(edgeNode);
 
         // Skip/count
         if (activeLength >= edgeLength) {
+          const prevAN = activeNode;
+          const prevAE = activeEdge;
+          const prevAL = activeLength;
           activeNode = edgeNodeId;
           activeEdge += edgeLength;
           activeLength -= edgeLength;
 
-          steps.push({
-            phase: i,
-            extension: lastj,
-            txt,
-            leafEnd,
-            activeNodeId: activeNode,
-            activeEdge,
-            activeLength,
-            lastj,
-            lastNewNodeId: lastNewNode,
-            rule: 'skipcount',
-            explanation: `Extension ${lastj}: Active length (${activeLength + edgeLength}) >= edge length (${edgeLength}). Walking down — moved active node to next node along the path. (Skip/Count trick)`,
-            nodes: cloneNodes(nodes),
-            newNodeIds: [],
-            highlightEdge: null,
-            suffixLinkFrom: null,
-            suffixLinkTo: null,
-          });
-
+          const edgeLabelStr = txt.slice(edgeNode.start, getEnd(edgeNode) + 1);
+          snap(i, lastj, 'skipcount',
+            `Extension ${lastj}: Walking down the tree (Skip/Count). ` +
+            `Remainder ${remStr(prevAE, prevAL)} is longer than edge "${edgeLabelStr}" (length ${edgeLength}). ` +
+            `Moved active node from ${nodeLabel(prevAN)} to ${nodeLabel(activeNode)}. ` +
+            `Remainder updated: ${remStr(prevAE, prevAL)} → ${remStr(activeEdge, activeLength)}. ` +
+            `Continuing to walk down from the new active node.`
+          );
           continue;
         }
 
@@ -197,35 +226,33 @@ export function buildSteps(txt: string): StepSnapshot[] {
           const slTo = lastNewNode !== null ? activeNode : null;
           if (lastNewNode !== null) {
             nodes[lastNewNode].suffixLink = activeNode;
-            lastNewNode = null;
           }
+          const prevLastNewNode = lastNewNode;
+          lastNewNode = null;
+
+          const prevAL = activeLength;
           activeLength++;
           activeEdge = edgeNode.start;
 
-          steps.push({
-            phase: i,
-            extension: lastj,
-            txt,
-            leafEnd,
-            activeNodeId: activeNode,
-            activeEdge,
-            activeLength,
-            lastj,
-            lastNewNodeId: lastNewNode,
-            rule: 'rule3',
-            explanation: `Extension ${lastj}: Character '${txt[i]}' already exists on the current edge at position ${edgeNode.start + activeLength - 1}. Showstopper — Rule 3 applied. Active length incremented to ${activeLength}. Remaining extensions are implicit.`,
-            nodes: cloneNodes(nodes),
-            newNodeIds: [],
-            highlightEdge: [activeNode, edgeNodeId],
-            suffixLinkFrom: slFrom,
-            suffixLinkTo: slTo,
-          });
-
+          snap(i, lastj, 'rule3',
+            `Extension ${lastj}: Character '${txt[i]}' (index ${i}) already exists on the edge to ${nodeLabel(edgeNodeId)} ` +
+            `at position ${edgeNode.start + prevAL}. Showstopper — Rule 3 applied. ` +
+            `Remainder grows: ${remStr(activeEdge, prevAL)} → ${remStr(activeEdge, activeLength)}. ` +
+            `All remaining extensions ${lastj + 1}..${i} are implicit (already in the tree). ` +
+            `Phase ${i + 1} ends here.` +
+            (prevLastNewNode !== null ? ` Suffix link set: ${nodeLabel(prevLastNewNode)} → ${nodeLabel(activeNode)}.` : ''),
+            [],
+            [activeNode, edgeNodeId],
+            slFrom,
+            slTo,
+          );
           break;
         }
 
         // Rule 2 Case 2: split edge, create internal node + new leaf
         const start = edgeNode.start;
+        const splitLabel = txt.slice(start, start + activeLength);
+        const remainingLabel = txt.slice(start + activeLength, getEnd(edgeNode) + 1);
         edgeNode.start += activeLength;
 
         const newInternal = makeNode(start, start + activeLength - 1, -1, false);
@@ -244,35 +271,48 @@ export function buildSteps(txt: string): StepSnapshot[] {
           slFrom = lastNewNode;
           slTo = newInternal.id;
         }
+        const prevLastNewNode = lastNewNode;
         lastNewNode = newInternal.id;
 
-        steps.push({
-          phase: i,
-          extension: lastj,
-          txt,
-          leafEnd,
-          activeNodeId: activeNode,
-          activeEdge,
-          activeLength,
-          lastj,
-          lastNewNodeId: lastNewNode,
-          rule: 'rule2case2',
-          explanation: `Extension ${lastj}: Character '${txt[i]}' differs from '${txt[edgeNode.start]}' mid-edge. Split the edge: created internal node [${start},${start + activeLength - 1}] and new leaf for suffix ${lastj}. This is Rule 2, Case 2 (Regular).`,
-          nodes: cloneNodes(nodes),
-          newNodeIds: [newInternal.id, newLeaf.id],
-          highlightEdge: [activeNode, newInternal.id],
-          suffixLinkFrom: slFrom,
-          suffixLinkTo: slTo,
-        });
+        snap(i, lastj, 'rule2case2',
+          `Extension ${lastj}: Trying to insert suffix "${txt.slice(lastj, i + 1)}" (indices [${lastj}, ${i}]). ` +
+          `Active node is ${nodeLabel(activeNode)}, remainder is ${remStr(activeEdge, activeLength)}. ` +
+          `Character '${txt[i]}' differs from '${txt[edgeNode.start]}' mid-edge. ` +
+          `Split edge: "${splitLabel}" becomes internal node N${newInternal.id}, ` +
+          `"${remainingLabel}" continues to old node, and new leaf L${lastj} added for '${txt[i]}'. ` +
+          `Rule 2, Case 2 (Regular) applied.` +
+          (prevLastNewNode !== null ? ` Suffix link set: ${nodeLabel(prevLastNewNode)} → N${newInternal.id}.` : '') +
+          ` Last new internal node is now N${newInternal.id}.`,
+          [newInternal.id, newLeaf.id],
+          [activeNode, newInternal.id],
+          slFrom,
+          slTo,
+        );
       }
 
       lastj++;
 
+      // Active point traversal — record as a separate step
       if (activeNode === root.id && activeLength > 0) {
+        const prevAE = activeEdge;
+        const prevAL = activeLength;
         activeLength--;
         activeEdge++;
+
+        snap(i, lastj, 'rootadjust',
+          `Active point adjustment at root: Since active node is root, we remove the leading character from the remainder. ` +
+          `Remainder updated: ${remStr(prevAE, prevAL)} → ${remStr(activeEdge, activeLength)}. ` +
+          `This shifts from suffix "${txt.slice(lastj - 1, i + 1)}" to suffix "${txt.slice(lastj, i + 1)}" for the next extension.`
+        );
       } else if (activeNode !== root.id) {
+        const prevAN = activeNode;
         activeNode = nodes[activeNode].suffixLink!;
+
+        snap(i, lastj, 'suffixlink',
+          `Follow suffix link: Active node moves from ${nodeLabel(prevAN)} to ${nodeLabel(activeNode)}. ` +
+          `Remainder stays ${remStr(activeEdge, activeLength)}. ` +
+          `This positions us to process the next shorter suffix "${txt.slice(lastj, i + 1)}".`
+        );
       }
     }
   }

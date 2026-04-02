@@ -39,18 +39,28 @@ function Var({
   );
 }
 
+function computeRemainder(step: StepSnapshot): { start: number; end: number; substr: string } | null {
+  if (step.activeLength <= 0 || step.activeEdge < 0 || step.activeEdge >= step.txt.length) {
+    return null;
+  }
+  const start = step.activeEdge;
+  const end = step.activeEdge + step.activeLength - 1;
+  const substr = step.txt.slice(start, end + 1);
+  return { start, end, substr };
+}
+
+function remainderDisplay(r: { start: number; end: number; substr: string } | null): string {
+  if (!r) return 'none';
+  return `"${r.substr}" [${r.start}, ${r.end}]`;
+}
+
 export default function VariablePanel({ step, prevStep }: Props) {
   const p = prevStep;
 
-  const activeEdgeDisplay =
-    step.activeEdge >= 0 && step.activeEdge < step.txt.length
-      ? `'${step.txt[step.activeEdge]}' (idx ${step.activeEdge})`
-      : '-1';
-
-  const prevActiveEdgeDisplay =
-    p && p.activeEdge >= 0 && p.activeEdge < p.txt.length
-      ? `'${p.txt[p.activeEdge]}' (idx ${p.activeEdge})`
-      : '-1';
+  const remainder = computeRemainder(step);
+  const prevRemainder = p ? computeRemainder(p) : null;
+  const remDisplay = remainderDisplay(remainder);
+  const prevRemDisplay = remainderDisplay(prevRemainder);
 
   return (
     <div className="space-y-2">
@@ -64,16 +74,10 @@ export default function VariablePanel({ step, prevStep }: Props) {
         color="text-amber-300"
       />
       <Var
-        label="Active Edge"
-        value={activeEdgeDisplay}
-        changed={!!p && activeEdgeDisplay !== prevActiveEdgeDisplay}
+        label="Remainder"
+        value={remDisplay}
+        changed={!!p && remDisplay !== prevRemDisplay}
         color="text-blue-300"
-      />
-      <Var
-        label="Active Length"
-        value={step.activeLength}
-        changed={!!p && step.activeLength !== p.activeLength}
-        color="text-emerald-300"
       />
       <Var
         label="Last j"

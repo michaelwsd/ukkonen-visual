@@ -26,6 +26,8 @@ function RuleBadge({ rule }: { rule: string }) {
     rule2case2: { label: 'Rule 2, Case 2 (Regular) — Split Edge', color: 'bg-purple-500/20 text-purple-300 ring-purple-500/30' },
     rule3: { label: 'Rule 3 — Showstopper', color: 'bg-rose-500/20 text-rose-300 ring-rose-500/30' },
     skipcount: { label: 'Skip / Count', color: 'bg-slate-500/20 text-slate-300 ring-slate-500/30' },
+    suffixlink: { label: 'Follow Suffix Link', color: 'bg-cyan-500/20 text-cyan-300 ring-cyan-500/30' },
+    rootadjust: { label: 'Root Adjustment', color: 'bg-orange-500/20 text-orange-300 ring-orange-500/30' },
   };
   const info = map[rule] || { label: rule, color: 'bg-slate-700 text-slate-300' };
 
