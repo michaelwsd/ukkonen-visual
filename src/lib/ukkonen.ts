@@ -110,7 +110,10 @@ export function buildSteps(txt: string): StepSnapshot[] {
   }
 
   function nodeLabel(id: number): string {
-    return id === root.id ? 'root' : `Node ${id}`;
+    if (id === root.id) return 'root';
+    const node = nodes[id];
+    if (node.isLeaf) return `L${node.suffixIndex}`;
+    return `N${id}`;
   }
 
   function snap(
