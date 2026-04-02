@@ -1,0 +1,480 @@
+// Ukkonen's suffix tree algorithm ported from Python, instrumented for visualization
+
+export interface TreeNode {
+  id: number;
+  children: (number | null)[]; // indices into node array
+  start: number;
+  end: number | 'leaf'; // 'leaf' means use global leafEnd
+  isLeaf: boolean;
+  suffixIndex: number;
+  suffixLink: number | null; // index into node array
+}
+
+export type RuleApplied =
+  | 'rule1'
+  | 'rule2case1'
+  | 'rule2case2'
+  | 'rule3'
+  | 'skipcount';
+
+export interface StepSnapshot {
+  phase: number;          // i (0-based)
+  extension: number;      // j (lastj value at this step)
+  txt: string;
+  leafEnd: number;
+  activeNodeId: number;
+  activeEdge: number;
+  activeLength: number;
+  lastj: number;
+  lastNewNodeId: number | null;
+  rule: RuleApplied;
+  explanation: string;
+  nodes: TreeNode[];
+  newNodeIds: number[];       // nodes created in this step
+  highlightEdge: [number, number] | null; // [parentId, childId] of the edge acted on
+  suffixLinkFrom: number | null;
+  suffixLinkTo: number | null;
+}
+
+function cloneNodes(nodes: InternalNode[]): TreeNode[] {
+  return nodes.map((n) => ({
+    id: n.id,
+    children: [...n.children],
+    start: n.start,
+    end: n.end === null ? 'leaf' : n.end,
+    isLeaf: n.isLeaf,
+    suffixIndex: n.suffixIndex,
+    suffixLink: n.suffixLink,
+  }));
+}
+
+interface InternalNode {
+  id: number;
+  children: (number | null)[];
+  start: number;
+  end: number | null; // null means leaf (uses global leafEnd)
+  isLeaf: boolean;
+  suffixIndex: number;
+  suffixLink: number | null;
+}
+
+export function buildSteps(txt: string): StepSnapshot[] {
+  const steps: StepSnapshot[] = [];
+  const nodes: InternalNode[] = [];
+  let nextId = 0;
+  let leafEnd = -1;
+
+  function makeNode(
+    start: number,
+    end: number | null,
+    suffixIndex: number,
+    isLeaf: boolean
+  ): InternalNode {
+    const node: InternalNode = {
+      id: nextId++,
+      children: new Array(128).fill(null),
+      start,
+      end,
+      isLeaf,
+      suffixIndex,
+      suffixLink: null,
+    };
+    nodes.push(node);
+    return node;
+  }
+
+  function getEnd(node: InternalNode): number {
+    return node.end === null ? leafEnd : node.end;
+  }
+
+  function getLength(node: InternalNode): number {
+    return getEnd(node) - node.start + 1;
+  }
+
+  // Create root
+  const root = makeNode(-1, -1, -1, false);
+  root.suffixLink = root.id;
+
+  let activeNode = root.id;
+  let activeEdge = -1;
+  let activeLength = 0;
+  let lastj = 0;
+
+  for (let i = 0; i < txt.length; i++) {
+    // Rule 1: extend all leaves
+    leafEnd++;
+
+    let lastNewNode: number | null = null;
+
+    // Record rule 1 step at start of phase
+    steps.push({
+      phase: i,
+      extension: -1,
+      txt,
+      leafEnd,
+      activeNodeId: activeNode,
+      activeEdge,
+      activeLength,
+      lastj,
+      lastNewNodeId: null,
+      rule: 'rule1',
+      explanation: `Phase ${i + 1}: Processing character '${txt[i]}' (index ${i}). Global leaf end incremented to ${leafEnd} — all existing leaves are extended by one character (Rule 1).`,
+      nodes: cloneNodes(nodes),
+      newNodeIds: [],
+      highlightEdge: null,
+      suffixLinkFrom: null,
+      suffixLinkTo: null,
+    });
+
+    while (lastj <= i) {
+      const edgeChar =
+        activeLength === 0 ? txt.charCodeAt(i) : txt.charCodeAt(activeEdge);
+      const edgeNodeId = nodes[activeNode].children[edgeChar];
+
+      if (edgeNodeId === null) {
+        // Rule 2 Case 1: no outgoing edge — create new leaf
+        const newLeaf = makeNode(i, null, lastj, true);
+        nodes[activeNode].children[edgeChar] = newLeaf.id;
+
+        if (lastNewNode !== null) {
+          nodes[lastNewNode].suffixLink = activeNode;
+          lastNewNode = null;
+        }
+
+        steps.push({
+          phase: i,
+          extension: lastj,
+          txt,
+          leafEnd,
+          activeNodeId: activeNode,
+          activeEdge,
+          activeLength,
+          lastj,
+          lastNewNodeId: lastNewNode,
+          rule: 'rule2case1',
+          explanation: `Extension ${lastj}: No edge starting with '${txt[edgeChar === txt.charCodeAt(i) ? i : activeEdge]}' from active node. Created new leaf node (suffix ${lastj}). This is Rule 2, Case 1 (Alternate).`,
+          nodes: cloneNodes(nodes),
+          newNodeIds: [newLeaf.id],
+          highlightEdge: [activeNode, newLeaf.id],
+          suffixLinkFrom: null,
+          suffixLinkTo: null,
+        });
+      } else {
+        const edgeNode = nodes[edgeNodeId];
+        const edgeLength = getLength(edgeNode);
+
+        // Skip/count
+        if (activeLength >= edgeLength) {
+          activeNode = edgeNodeId;
+          activeEdge += edgeLength;
+          activeLength -= edgeLength;
+
+          steps.push({
+            phase: i,
+            extension: lastj,
+            txt,
+            leafEnd,
+            activeNodeId: activeNode,
+            activeEdge,
+            activeLength,
+            lastj,
+            lastNewNodeId: lastNewNode,
+            rule: 'skipcount',
+            explanation: `Extension ${lastj}: Active length (${activeLength + edgeLength}) >= edge length (${edgeLength}). Walking down — moved active node to next node along the path. (Skip/Count trick)`,
+            nodes: cloneNodes(nodes),
+            newNodeIds: [],
+            highlightEdge: null,
+            suffixLinkFrom: null,
+            suffixLinkTo: null,
+          });
+
+          continue;
+        }
+
+        // Rule 3: character already exists
+        if (txt[i] === txt[edgeNode.start + activeLength]) {
+          const slFrom = lastNewNode;
+          const slTo = lastNewNode !== null ? activeNode : null;
+          if (lastNewNode !== null) {
+            nodes[lastNewNode].suffixLink = activeNode;
+            lastNewNode = null;
+          }
+          activeLength++;
+          activeEdge = edgeNode.start;
+
+          steps.push({
+            phase: i,
+            extension: lastj,
+            txt,
+            leafEnd,
+            activeNodeId: activeNode,
+            activeEdge,
+            activeLength,
+            lastj,
+            lastNewNodeId: lastNewNode,
+            rule: 'rule3',
+            explanation: `Extension ${lastj}: Character '${txt[i]}' already exists on the current edge at position ${edgeNode.start + activeLength - 1}. Showstopper — Rule 3 applied. Active length incremented to ${activeLength}. Remaining extensions are implicit.`,
+            nodes: cloneNodes(nodes),
+            newNodeIds: [],
+            highlightEdge: [activeNode, edgeNodeId],
+            suffixLinkFrom: slFrom,
+            suffixLinkTo: slTo,
+          });
+
+          break;
+        }
+
+        // Rule 2 Case 2: split edge, create internal node + new leaf
+        const start = edgeNode.start;
+        edgeNode.start += activeLength;
+
+        const newInternal = makeNode(start, start + activeLength - 1, -1, false);
+        newInternal.suffixLink = root.id;
+
+        const newLeaf = makeNode(i, null, lastj, true);
+
+        newInternal.children[txt.charCodeAt(i)] = newLeaf.id;
+        newInternal.children[txt.charCodeAt(edgeNode.start)] = edgeNodeId;
+        nodes[activeNode].children[txt.charCodeAt(start)] = newInternal.id;
+
+        let slFrom: number | null = null;
+        let slTo: number | null = null;
+        if (lastNewNode !== null) {
+          nodes[lastNewNode].suffixLink = newInternal.id;
+          slFrom = lastNewNode;
+          slTo = newInternal.id;
+        }
+        lastNewNode = newInternal.id;
+
+        steps.push({
+          phase: i,
+          extension: lastj,
+          txt,
+          leafEnd,
+          activeNodeId: activeNode,
+          activeEdge,
+          activeLength,
+          lastj,
+          lastNewNodeId: lastNewNode,
+          rule: 'rule2case2',
+          explanation: `Extension ${lastj}: Character '${txt[i]}' differs from '${txt[edgeNode.start]}' mid-edge. Split the edge: created internal node [${start},${start + activeLength - 1}] and new leaf for suffix ${lastj}. This is Rule 2, Case 2 (Regular).`,
+          nodes: cloneNodes(nodes),
+          newNodeIds: [newInternal.id, newLeaf.id],
+          highlightEdge: [activeNode, newInternal.id],
+          suffixLinkFrom: slFrom,
+          suffixLinkTo: slTo,
+        });
+      }
+
+      lastj++;
+
+      if (activeNode === root.id && activeLength > 0) {
+        activeLength--;
+        activeEdge++;
+      } else if (activeNode !== root.id) {
+        activeNode = nodes[activeNode].suffixLink!;
+      }
+    }
+  }
+
+  return steps;
+}
+
+// Utility: compute layout positions for tree nodes
+export interface LayoutNode {
+  id: number;
+  x: number;
+  y: number;
+  label: string;
+  isLeaf: boolean;
+  isRoot: boolean;
+  suffixIndex: number;
+}
+
+export interface LayoutEdge {
+  from: number;
+  to: number;
+  label: string;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+}
+
+export interface LayoutSuffixLink {
+  from: number;
+  to: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+}
+
+export interface TreeLayout {
+  nodes: LayoutNode[];
+  edges: LayoutEdge[];
+  suffixLinks: LayoutSuffixLink[];
+  width: number;
+  height: number;
+}
+
+export function computeLayout(
+  treeNodes: TreeNode[],
+  txt: string,
+  leafEnd: number
+): TreeLayout {
+  if (treeNodes.length === 0) return { nodes: [], edges: [], suffixLinks: [], width: 0, height: 0 };
+
+  const root = treeNodes[0];
+  const layoutNodes: LayoutNode[] = [];
+  const layoutEdges: LayoutEdge[] = [];
+  const layoutSuffixLinks: LayoutSuffixLink[] = [];
+
+  const CHAR_WIDTH = 7.5; // approx monospace char width at font-size 11
+  const MIN_H_GAP = 60;   // minimum gap between adjacent leaf centers
+  const NODE_V_GAP = 100;
+  const nodeById = new Map<number, TreeNode>();
+  for (const n of treeNodes) nodeById.set(n.id, n);
+
+  const getEndVal = (n: TreeNode) => (n.end === 'leaf' ? leafEnd : n.end);
+
+  // Compute the edge label for a child node
+  function edgeLabel(childId: number): string {
+    const child = nodeById.get(childId)!;
+    return txt.slice(child.start, getEndVal(child) + 1);
+  }
+
+  // Compute minimum width a subtree needs (sum of leaf slot widths)
+  // Each leaf slot width is determined by the longest label on edges from its parent
+  const subtreeWidthCache = new Map<number, number>();
+  function subtreeWidth(nodeId: number): number {
+    if (subtreeWidthCache.has(nodeId)) return subtreeWidthCache.get(nodeId)!;
+    const node = nodeById.get(nodeId)!;
+    const kids = node.children.filter((c) => c !== null) as number[];
+    if (kids.length === 0) {
+      subtreeWidthCache.set(nodeId, MIN_H_GAP);
+      return MIN_H_GAP;
+    }
+    // Width = sum of children subtree widths, but ensure enough spacing for labels
+    let totalWidth = 0;
+    for (const kidId of kids) {
+      const label = edgeLabel(kidId);
+      const labelWidth = label.length * CHAR_WIDTH + 30; // label + padding
+      const childWidth = subtreeWidth(kidId);
+      totalWidth += Math.max(labelWidth, childWidth);
+    }
+    // Add gaps between children
+    totalWidth += (kids.length - 1) * 10;
+    subtreeWidthCache.set(nodeId, totalWidth);
+    return totalWidth;
+  }
+  subtreeWidth(root.id);
+
+  const posMap = new Map<number, { x: number; y: number }>();
+
+  // Assign positions: each subtree gets a horizontal slot
+  function assignPositions(nodeId: number, depth: number, leftX: number, availableWidth: number) {
+    const node = nodeById.get(nodeId)!;
+    const kids = node.children.filter((c) => c !== null) as number[];
+
+    if (kids.length === 0) {
+      posMap.set(nodeId, { x: leftX + availableWidth / 2, y: depth * NODE_V_GAP });
+      return;
+    }
+
+    // Distribute available width proportionally to each child's needed width
+    const totalNeeded = subtreeWidth(nodeId);
+    let curX = leftX;
+    for (const kidId of kids) {
+      const label = edgeLabel(kidId);
+      const labelWidth = label.length * CHAR_WIDTH + 30;
+      const childNeeded = Math.max(labelWidth, subtreeWidth(kidId));
+      const childSlot = (childNeeded / totalNeeded) * availableWidth;
+      assignPositions(kidId, depth + 1, curX, childSlot);
+      curX += childSlot;
+    }
+
+    // Center parent over its children
+    const childPositions = kids.map((k) => posMap.get(k)!.x);
+    const minCX = Math.min(...childPositions);
+    const maxCX = Math.max(...childPositions);
+    posMap.set(nodeId, { x: (minCX + maxCX) / 2, y: depth * NODE_V_GAP });
+  }
+
+  const totalW = Math.max(subtreeWidth(root.id), 200);
+  assignPositions(root.id, 0, 0, totalW);
+
+  // Build layout objects
+  for (const node of treeNodes) {
+    const pos = posMap.get(node.id);
+    if (!pos) continue;
+
+    const isRoot = node.id === root.id;
+
+    layoutNodes.push({
+      id: node.id,
+      x: pos.x,
+      y: pos.y,
+      label: isRoot ? 'root' : node.isLeaf ? `L${node.suffixIndex}` : `N${node.id}`,
+      isLeaf: node.isLeaf,
+      isRoot,
+      suffixIndex: node.suffixIndex,
+    });
+
+    // Edges
+    const kids = node.children.filter((c) => c !== null) as number[];
+    for (const kidId of kids) {
+      const kidPos = posMap.get(kidId);
+      if (!kidPos) continue;
+
+      const label = edgeLabel(kidId);
+      layoutEdges.push({
+        from: node.id,
+        to: kidId,
+        label,
+        fromX: pos.x,
+        fromY: pos.y,
+        toX: kidPos.x,
+        toY: kidPos.y,
+      });
+    }
+
+    // Suffix links (include root's self-link, skip leaf nodes)
+    if (
+      !node.isLeaf &&
+      node.suffixLink !== null
+    ) {
+      const targetPos = posMap.get(node.suffixLink);
+      if (targetPos) {
+        layoutSuffixLinks.push({
+          from: node.id,
+          to: node.suffixLink,
+          fromX: pos.x,
+          fromY: pos.y,
+          toX: targetPos.x,
+          toY: targetPos.y,
+        });
+      }
+    }
+  }
+
+  const allX = layoutNodes.map((n) => n.x);
+  const allY = layoutNodes.map((n) => n.y);
+  const PADDING = 60;
+  const width = Math.max(...allX) - Math.min(...allX) + PADDING * 2;
+  const height = Math.max(...allY) + NODE_V_GAP;
+
+  // Normalize positions to have padding
+  const minX = Math.min(...allX);
+  for (const n of layoutNodes) n.x -= minX - PADDING;
+  for (const e of layoutEdges) {
+    e.fromX -= minX - PADDING;
+    e.toX -= minX - PADDING;
+  }
+  for (const s of layoutSuffixLinks) {
+    s.fromX -= minX - PADDING;
+    s.toX -= minX - PADDING;
+  }
+
+  return { nodes: layoutNodes, edges: layoutEdges, suffixLinks: layoutSuffixLinks, width, height };
+}
