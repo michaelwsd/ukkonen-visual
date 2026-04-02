@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { buildSteps, StepSnapshot } from '@/lib/ukkonen';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { StepSnapshot } from '@/lib/types';
 import TreeVisualization from '@/components/TreeVisualization';
 import VariablePanel from '@/components/VariablePanel';
 import StringDisplay from '@/components/StringDisplay';
@@ -10,12 +10,35 @@ import StepControls from '@/components/StepControls';
 export default function Home() {
   const [inputText, setInputText] = useState('abcabc$');
   const [text, setText] = useState('abcabc$');
+  const [steps, setSteps] = useState<StepSnapshot[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1200);
+  const [loading, setLoading] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const steps = useMemo(() => buildSteps(text), [text]);
+  // Fetch steps from server API
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch('/api/build-steps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ txt: text }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) {
+          setSteps(data.steps);
+          setStepIndex(0);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [text]);
 
   const step: StepSnapshot | null = steps[stepIndex] ?? null;
   const prevStep: StepSnapshot | null = stepIndex > 0 ? steps[stepIndex - 1] : null;
@@ -91,6 +114,14 @@ export default function Home() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <p className="text-slate-400 text-sm">Building suffix tree...</p>
+      </div>
+    );
+  }
+
   if (!step) return null;
 
   return (
@@ -103,7 +134,7 @@ export default function Home() {
               Ukkonen&apos;s Suffix Tree — Step-by-Step Visualizer
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Arrow keys to navigate, Space to play/pause <span className="text-slate-600 ml-2">by michael w</span>
+              Arrow keys to navigate, Space to play/pause <span className="text-slate-600 ml-2">by mw</span>
             </p>
           </div>
           <div className="flex items-center gap-2">

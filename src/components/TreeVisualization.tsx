@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { computeLayout, StepSnapshot } from '@/lib/ukkonen';
+import { StepSnapshot } from '@/lib/types';
+import { computeLayout } from '@/lib/layout';
 
 interface Props {
   step: StepSnapshot;

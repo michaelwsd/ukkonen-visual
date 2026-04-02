@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { StepSnapshot } from '@/lib/ukkonen';
+import { StepSnapshot } from '@/lib/types';
 
 interface Props {
   currentIndex: number;
