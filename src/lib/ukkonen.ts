@@ -259,7 +259,8 @@ export function buildSteps(txt: string): StepSnapshot[] {
         edgeNode.start += activeLength;
 
         const newInternal = makeNode(start, start + activeLength - 1, -1, false);
-        newInternal.suffixLink = root.id;
+        // Suffix link will be set correctly by a subsequent extension (Rule 2 or Rule 3).
+        // If no subsequent extension resolves it, we set it to root after the loop.
 
         const newLeaf = makeNode(i, null, lastj, true);
 
@@ -317,6 +318,12 @@ export function buildSteps(txt: string): StepSnapshot[] {
           `This positions us to process the next shorter suffix "${txt.slice(lastj, i + 1)}".`
         );
       }
+    }
+
+    // If the last internal node created in this phase never had its suffix link
+    // resolved by a subsequent extension, it correctly points to root.
+    if (lastNewNode !== null && nodes[lastNewNode].suffixLink === null) {
+      nodes[lastNewNode].suffixLink = root.id;
     }
   }
 
