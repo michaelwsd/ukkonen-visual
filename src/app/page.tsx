@@ -128,7 +128,7 @@ export default function Home() {
     <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col">
       {/* Header */}
       <header className="border-b border-slate-800 px-6 py-4">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-4 flex-wrap">
+        <div className="max-w-400 mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-lg font-bold text-slate-100">
               Ukkonen&apos;s Suffix Tree — Step-by-Step Visualizer
@@ -167,7 +167,7 @@ export default function Home() {
           </div>
 
           {/* Tree */}
-          <div className="flex-1 min-h-[300px]">
+          <div className="flex-1 min-h-75">
             <TreeVisualization step={step} prevStep={prevStep} />
           </div>
 
