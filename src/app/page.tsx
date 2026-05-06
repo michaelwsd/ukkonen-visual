@@ -134,7 +134,7 @@ export default function Home() {
               Ukkonen&apos;s Suffix Tree — Step-by-Step Visualizer
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Arrow keys to navigate, Space to play/pause <span className="text-slate-600 ml-2">by mw</span>
+              Arrow keys to navigate, Space to play/pause <span className="text-slate-600 ml-2">by michael wang</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
